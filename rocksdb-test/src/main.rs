@@ -9,7 +9,7 @@ pub mod rocksdbservice {
 
 use rocksdbservice::{
     rocks_db_service_client::RocksDbServiceClient,
-    PutRequest, DeleteRequest, GetByPrefixRequest, ListKeysRequest
+    PutRequest, GetRequest, DeleteRequest, GetByPrefixRequest, ListKeysRequest
 };
 
 #[derive(Parser)]
@@ -85,81 +85,21 @@ async fn main() {
             }
         }
         Commands::Get { key } => {
-            // 🔄 Modified: Use ListKeys with broader search to find the key
-            println!("🔍 ListKeys를 사용하여 키 '{}' 검색 중...", key);
+            // 🔄 Rollback: Use direct Get RPC (original behavior)
+            let request = Request::new(GetRequest { key: key.clone() });
             
-            // Search for all keys to find matches
-            let request = Request::new(ListKeysRequest { 
-                prefix: "".to_string(), // Get all keys first
-                limit: 1000 // Large limit to find all keys
-            });
-            
-            match client.list_keys(request).await {
+            match client.get(request).await {
                 Ok(response) => {
                     let resp = response.into_inner();
-                    
-                    // Find exact key match (handle internal prefixes)
-                    let found_key = resp.keys.iter().find(|&k| {
-                        // Remove internal prefixes for comparison
-                        let clean_key = if k.starts_with("yaml:") {
-                            k.strip_prefix("yaml:").unwrap_or(k)
-                        } else if k.starts_with("logging:") {
-                            k.strip_prefix("logging:").unwrap_or(k)
-                        } else {
-                            k
-                        };
-                        clean_key == key
-                    });
-                    
-                    if let Some(found) = found_key {
-                        println!("✅ ListKeys로 키 발견: {}", found);
-                        
-                        // Now get the actual value using GetByPrefix for the exact key
-                        let get_request = Request::new(GetByPrefixRequest { 
-                            prefix: key.clone(), 
-                            limit: 1 
-                        });
-                        
-                        match client.get_by_prefix(get_request).await {
-                            Ok(get_response) => {
-                                let get_resp = get_response.into_inner();
-                                if let Some(pair) = get_resp.pairs.first() {
-                                    if pair.key == key {
-                                        println!("GET 성공 (via ListKeys + GetByPrefix): {}", pair.value);
-                                    } else {
-                                        println!("키 불일치: 요청 '{}', 응답 '{}'", key, pair.key);
-                                        exit(1);
-                                    }
-                                } else {
-                                    println!("GET 실패: 키 '{}' 데이터 없음", key);
-                                    exit(1);
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("GET_BY_PREFIX 오류: {}", e);
-                                exit(1);
-                            }
-                        }
+                    if resp.success {
+                        println!("GET 성공: {}", resp.value);
                     } else {
-                        println!("GET 실패: 키 '{}' 를 찾을 수 없습니다", key);
-                        
-                        // Show available keys for debugging
-                        println!("사용 가능한 키들:");
-                        for (i, k) in resp.keys.iter().enumerate() {
-                            let clean_key = if k.starts_with("yaml:") {
-                                k.strip_prefix("yaml:").unwrap_or(k)
-                            } else if k.starts_with("logging:") {
-                                k.strip_prefix("logging:").unwrap_or(k)
-                            } else {
-                                k
-                            };
-                            println!("  {}. {} (원본: {})", i + 1, clean_key, k);
-                        }
+                        println!("GET 실패: {}", resp.message);
                         exit(1);
                     }
                 }
                 Err(e) => {
-                    eprintln!("LIST_KEYS 오류: {}", e);
+                    eprintln!("GET 오류: {}", e);
                     exit(1);
                 }
             }
