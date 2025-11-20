@@ -101,7 +101,7 @@ jobs:
     steps:
       # Step 1: Checkout the code
       - name: Checkout repository
-      - uses: actions/checkout@v4
+        uses: actions/checkout@v4
 
       # Download binary - amd64
       - name: Download binary - amd64
