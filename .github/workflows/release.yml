@@ -85,3 +85,34 @@ jobs:
         with:
           name: rocksctl-binary-arm64
           path: dist/binaries/arm/rocksctl-linux-arm64
+  upload_binary:
+    name: Upload release artifacts
+    runs-on: ubuntu-latest
+
+    # Only run this if triggered by a version tag push
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+
+    # Wait for all required jobs to complete successfully
+    needs:
+      - run_arm64
+      - run_amd64
+
+    permissions: write-all
+    steps:
+      # Step 1: Checkout the code
+      - name: Checkout repository
+      - uses: actions/checkout@v4
+
+      # Download binary - amd64
+      - name: Download binary - amd64
+        uses: actions/download-artifact@v4
+        with:
+          name: rocksctl-binary-amd64
+          path: dist/binaries/amd
+
+      # Download binary - arm64
+      - name: Download binary - arm64
+        uses: actions/download-artifact@v4
+        with:
+          name: rocksctl-binary-arm64
+          path: dist/binaries/arm
