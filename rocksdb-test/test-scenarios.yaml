@@ -1,182 +1,141 @@
-apiVersion: v1apiVersion: v1
-
-kind: TestScenariokind: Test
-
-metadata:metadata:
-
-  name: rocksdb-basic-test  name: rocksdb-client-test
-
-spec:  description: "RocksDB gRPC Client Test Scenarios"
-
-  description: "Basic RocksDB operations test"spec:
-
-  server:  server:
-
-    url: "http://127.0.0.1:47007"    url: "http://127.0.0.1:47007"
-
-  tests:    type: "grpc"
-
-    - name: "PUT operation"  tests:
-
-      action: "put"    - name: "basic-operations"
-
-      key: "example_key_{{timestamp}}"      description: "Test basic PUT, GET, DELETE operations"
-
-      value: "Hello RocksDB World! {{datetime}}"      steps:
-
-      expect: "success"        - action: "put"
-
-    - name: "GET operation"          key: "test_key_basic"
-
-      action: "get"          value: "Hello RocksDB World!"
-
-      key: "example_key_{{timestamp}}"          expect: "success"
-
-      expect: "success"        - action: "get"
-
-      expected_value: "Hello RocksDB World! {{datetime}}"          key: "test_key_basic"
-
-    - name: "DELETE operation"          expect: "success"
-
-      action: "delete"          expected_value: "Hello RocksDB World!"
-
-      key: "example_key_{{timestamp}}"        - action: "delete"
-
-      expect: "success"          key: "test_key_basic"
-
-    - name: "GET deleted key (should fail)"          expect: "success"
-
-      action: "get"        - action: "get"
-
-      key: "example_key_{{timestamp}}"          key: "test_key_basic"
-
-      expect: "failure"          expect: "failure"
-
-      expected_error: "Key not found"          expected_error: "Key not found"
-
----    
-
-apiVersion: v1    - name: "multiple-keys"
-
-kind: TestScenario      description: "Test multiple key operations"
-
-metadata:      steps:
-
-  name: rocksdb-multiple-operations        - action: "put"
-
-spec:          key: "user:1:name"
-
-  description: "Multiple keys and operations test"          value: "Alice"
-
-  server:          expect: "success"
-
-    url: "http://127.0.0.1:47007"        - action: "put"
-
-  tests:          key: "user:1:email"
-
-    - name: "PUT user data"          value: "alice@example.com"
-
-      action: "put"          expect: "success"
-
-      key: "user:1:name"        - action: "put"
-
-      value: "Alice"          key: "user:2:name"
-
-      expect: "success"          value: "Bob"
-
-    - name: "PUT user email"          expect: "success"
-
-      action: "put"        - action: "get"
-
-      key: "user:1:email"          key: "user:1:name"
-
-      value: "alice@example.com"          expect: "success"
-
-      expect: "success"          expected_value: "Alice"
-
-    - name: "GET user name"        - action: "get"
-
-      action: "get"          key: "user:1:email"
-
-      key: "user:1:name"          expect: "success"
-
-      expect: "success"          expected_value: "alice@example.com"
-
-      expected_value: "Alice"        - action: "get"
-
-    - name: "GET user email"          key: "user:2:name"
-
-      action: "get"          expect: "success"
-
-      key: "user:1:email"          expected_value: "Bob"
-
-      expect: "success"        - action: "cleanup"
-
-      expected_value: "alice@example.com"          keys: ["user:1:name", "user:1:email", "user:2:name"]
-
-    - name: "DELETE user name"    
-
-      action: "delete"    - name: "special-characters"
-
-      key: "user:1:name"      description: "Test keys and values with special characters"
-
-      expect: "success"      steps:
-
-    - name: "DELETE user email"        - action: "put"
-
-      action: "delete"          key: "special/key:with-chars_123"
-
-      key: "user:1:email"          value: "Value with spaces and 특수문자 !@#$%"
-
-      expect: "success"          expect: "success"
-
----        - action: "get"
-
-apiVersion: v1          key: "special/key:with-chars_123"
-
-kind: TestScenario          expect: "success"
-
-metadata:          expected_value: "Value with spaces and 특수문자 !@#$%"
-
-  name: rocksdb-error-handling        - action: "delete"
-
-spec:          key: "special/key:with-chars_123"
-
-  description: "Error handling and edge cases test"          expect: "success"
-
-  server:    
-
-    url: "http://127.0.0.1:47007"    - name: "large-value"
-
-  tests:      description: "Test with large value"
-
-    - name: "GET nonexistent key"      steps:
-
-      action: "get"        - action: "put"
-
-      key: "nonexistent_key_{{timestamp}}"          key: "large_value_key"
-
-      expect: "failure"          value: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."
-
-      expected_error: "Key not found"          expect: "success"
-
-    - name: "DELETE nonexistent key"        - action: "get"
-
-      action: "delete"          key: "large_value_key"
-
-      key: "nonexistent_key_{{timestamp}}"          expect: "success"
-
-      expect: "success"  # DELETE usually succeeds even if key doesn't exist        - action: "delete"
-          key: "large_value_key"
-          expect: "success"
-    
-    - name: "error-cases"
-      description: "Test error scenarios"
-      steps:
-        - action: "get"
-          key: "nonexistent_key"
-          expect: "failure"
-          expected_error: "Key not found"
-        - action: "delete"
-          key: "nonexistent_key"
-          expect: "success"  # DELETE typically succeeds even if key doesn't exist
+apiVersion: v1
+kind: TestScenario
+metadata:
+  name: rocksdb-helloworld-test
+spec:
+  description: "RocksDB operations test with helloworld YAML content"
+  server:
+    url: "http://127.0.0.1:47007"
+  tests:
+    - name: "PUT helloworld YAML"
+      action: "put"
+      key: "helloworld"
+      value: |
+        apiVersion: v1
+        kind: Scenario
+        metadata:
+          name: helloworld
+        spec:
+          condition: null
+          action: update
+          target: helloworld
+        ---
+        apiVersion: v1
+        kind: Package
+        metadata:
+          label: null
+          name: helloworld
+        spec:
+          pattern:
+            - type: plain
+          models:
+            - name: helloworld
+              node: HPC
+              resources:
+                volume:
+                network:
+        ---
+        apiVersion: v1
+        kind: Model
+        metadata:
+          name: helloworld
+          annotations:
+            io.piccolo.annotations.package-type: helloworld
+            io.piccolo.annotations.package-name: helloworld
+            io.piccolo.annotations.package-network: default
+          labels:
+            app: helloworld
+        spec:
+          hostNetwork: true
+          containers:
+            - name: helloworld
+              image: quay.io/podman/hello:latest
+          terminationGracePeriodSeconds: 0
+          restartPolicy: Always
+      expect: "success"
+    - name: "GET helloworld YAML"
+      action: "get"
+      key: "helloworld"
+      expect: "success"
+      expected_value: |
+        apiVersion: v1
+        kind: Scenario
+        metadata:
+          name: helloworld
+        spec:
+          condition: null
+          action: update
+          target: helloworld
+        ---
+        apiVersion: v1
+        kind: Package
+        metadata:
+          label: null
+          name: helloworld
+        spec:
+          pattern:
+            - type: plain
+          models:
+            - name: helloworld
+              node: HPC
+              resources:
+                volume:
+                network:
+        ---
+        apiVersion: v1
+        kind: Model
+        metadata:
+          name: helloworld
+          annotations:
+            io.piccolo.annotations.package-type: helloworld
+            io.piccolo.annotations.package-name: helloworld
+            io.piccolo.annotations.package-network: default
+          labels:
+            app: helloworld
+        spec:
+          hostNetwork: true
+          containers:
+            - name: helloworld
+              image: quay.io/podman/hello:latest
+          terminationGracePeriodSeconds: 0
+          restartPolicy: Always
+    - name: "PUT additional test data for prefix"
+      action: "put"
+      key: "hello:world"
+      value: "Hello World test data"
+      expect: "success"
+    - name: "PUT additional test data for prefix"
+      action: "put"
+      key: "hello:universe"
+      value: "Hello Universe test data"
+      expect: "success"
+    - name: "GET-PREFIX hello"
+      action: "get-prefix"
+      key: "hello"
+      expect: "success"
+    - name: "GET-PREFIX helloworld (exact match)"
+      action: "get-prefix"
+      key: "helloworld"
+      expect: "success"
+    - name: "GET-PREFIX nonexistent"
+      action: "get-prefix"
+      key: "nonexistent"
+      expect: "success"
+    - name: "DELETE helloworld"
+      action: "delete"
+      key: "helloworld"
+      expect: "success"
+    - name: "GET deleted helloworld (should fail)"
+      action: "get"
+      key: "helloworld"
+      expect: "failure"
+      expected_error: "Key not found"
+    - name: "Cleanup additional test data"
+      action: "delete"
+      key: "hello:world"
+      expect: "success"
+    - name: "Cleanup additional test data"
+      action: "delete"
+      key: "hello:universe"
+      expect: "success"
+      expect: "success"

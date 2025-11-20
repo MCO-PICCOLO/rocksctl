@@ -5,7 +5,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLIENT="$SCRIPT_DIR/rocksdb-client-static"
-YAML_FILE="$SCRIPT_DIR/test-scenarios.yaml"
+YAML_FILE="${1:-$SCRIPT_DIR/test-scenarios.yaml}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -19,31 +19,20 @@ TOTAL_TESTS=0
 PASSED_TESTS=0
 FAILED_TESTS=0
 
-# Variables for template replacement
-TIMESTAMP=$(date +%s)
-DATETIME=$(date)
-
-# 바이너리 존재 확인
-if [ ! -f "$CLIENT" ]; then
-    echo "❌ rocksdb-client-static 바이너리를 찾을 수 없습니다."
-    echo "먼저 ./build.sh를 실행하여 빌드해주세요."
+# Check if client exists
+if [[ ! -f "$CLIENT" ]]; then
+    echo -e "${RED}오류: $CLIENT 파일을 찾을 수 없습니다${NC}"
+    echo "먼저 ./build.sh를 실행하여 클라이언트를 빌드하세요"
     exit 1
 fi
 
-# YAML 파일 존재 확인
-if [ ! -f "$YAML_FILE" ]; then
-    echo "❌ YAML 테스트 파일을 찾을 수 없습니다: $YAML_FILE"
+# Check if YAML file exists
+if [[ ! -f "$YAML_FILE" ]]; then
+    echo -e "${RED}오류: $YAML_FILE 파일을 찾을 수 없습니다${NC}"
     exit 1
 fi
 
-# URL 설정 (환경변수 또는 기본값)
-DEFAULT_URL="${ROCKSDB_URL:-http://127.0.0.1:47007}"
-
-echo "RocksDB gRPC 클라이언트 YAML 기반 테스트 시작"
-echo "기본 서버 URL: $DEFAULT_URL"
-echo "테스트 시나리오: $YAML_FILE"
-
-# 테스트 실행 함수
+# Function to run a single test
 run_test() {
     local action="$1"
     local key="$2"
@@ -55,24 +44,9 @@ run_test() {
     
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     
-    # Template 변수 치환
-    key=$(echo "$key" | sed "s/{{timestamp}}/$TIMESTAMP/g" | sed "s/{{datetime}}/$DATETIME/g")
-    value=$(echo "$value" | sed "s/{{timestamp}}/$TIMESTAMP/g" | sed "s/{{datetime}}/$DATETIME/g")
-    expected_value=$(echo "$expected_value" | sed "s/{{timestamp}}/$TIMESTAMP/g" | sed "s/{{datetime}}/$DATETIME/g")
-    
-    if [[ "$action" == "cleanup" ]]; then
-        echo -n "  정리 중 ... "
-        for cleanup_key in $key; do
-            "$CLIENT" --url "$url" delete "$cleanup_key" >/dev/null 2>&1 || true
-        done
-        echo -e "${GREEN}완료${NC}"
-        PASSED_TESTS=$((PASSED_TESTS + 1))
-        return
-    fi
-    
     case "$action" in
         "put")
-            echo -n "  PUT $key = \"$value\" ... "
+            echo -n "  PUT $key ... "
             if output=$("$CLIENT" --url "$url" put "$key" "$value" 2>&1); then
                 if [[ "$expect" == "success" ]]; then
                     echo -e "${GREEN}성공${NC}"
@@ -83,8 +57,13 @@ run_test() {
                 fi
             else
                 if [[ "$expect" == "failure" ]]; then
-                    echo -e "${GREEN}예상된 실패${NC}"
-                    PASSED_TESTS=$((PASSED_TESTS + 1))
+                    if [[ -n "$expected_error" && "$output" == *"$expected_error"* ]]; then
+                        echo -e "${GREEN}예상된 실패 (오류 메시지 일치)${NC}"
+                        PASSED_TESTS=$((PASSED_TESTS + 1))
+                    else
+                        echo -e "${RED}예상된 실패 (오류 메시지 불일치)${NC}"
+                        FAILED_TESTS=$((FAILED_TESTS + 1))
+                    fi
                 else
                     echo -e "${RED}실패: $output${NC}"
                     FAILED_TESTS=$((FAILED_TESTS + 1))
@@ -95,15 +74,18 @@ run_test() {
             echo -n "  GET $key ... "
             if output=$("$CLIENT" --url "$url" get "$key" 2>&1); then
                 if [[ "$expect" == "success" ]]; then
-                    # GET 명령 출력에서 "GET 성공: " 부분 제거
-                    clean_output=$(echo "$output" | sed 's/^GET 성공: //')
-                    if [[ -n "$expected_value" && "$clean_output" != "$expected_value" ]]; then
-                        echo -e "${RED}값 불일치${NC}"
-                        echo "    예상: $expected_value"
-                        echo "    실제: $clean_output"
-                        FAILED_TESTS=$((FAILED_TESTS + 1))
+                    if [[ -n "$expected_value" ]]; then
+                        # Extract the actual value (remove "GET 성공: " prefix)
+                        actual_value="${output#GET 성공: }"
+                        if [[ "$actual_value" == "$expected_value" ]]; then
+                            echo -e "${GREEN}성공 (값 일치)${NC}"
+                            PASSED_TESTS=$((PASSED_TESTS + 1))
+                        else
+                            echo -e "${RED}실패 (값 불일치)${NC}"
+                            FAILED_TESTS=$((FAILED_TESTS + 1))
+                        fi
                     else
-                        echo -e "${GREEN}성공${NC}${expected_value:+ (값 일치)}"
+                        echo -e "${GREEN}성공${NC}"
                         PASSED_TESTS=$((PASSED_TESTS + 1))
                     fi
                 else
@@ -112,16 +94,11 @@ run_test() {
                 fi
             else
                 if [[ "$expect" == "failure" ]]; then
-                    if [[ -n "$expected_error" ]] && [[ "$output" == *"$expected_error"* ]]; then
+                    if [[ -n "$expected_error" && "$output" == *"$expected_error"* ]]; then
                         echo -e "${GREEN}예상된 실패 (오류 메시지 일치)${NC}"
                         PASSED_TESTS=$((PASSED_TESTS + 1))
-                    elif [[ -z "$expected_error" ]]; then
-                        echo -e "${GREEN}예상된 실패${NC}"
-                        PASSED_TESTS=$((PASSED_TESTS + 1))
                     else
-                        echo -e "${RED}오류 메시지 불일치${NC}"
-                        echo "    예상: $expected_error"
-                        echo "    실제: $output"
+                        echo -e "${RED}예상된 실패 (오류 메시지 불일치)${NC}"
                         FAILED_TESTS=$((FAILED_TESTS + 1))
                     fi
                 else
@@ -142,8 +119,40 @@ run_test() {
                 fi
             else
                 if [[ "$expect" == "failure" ]]; then
-                    echo -e "${GREEN}예상된 실패${NC}"
+                    if [[ -n "$expected_error" && "$output" == *"$expected_error"* ]]; then
+                        echo -e "${GREEN}예상된 실패 (오류 메시지 일치)${NC}"
+                        PASSED_TESTS=$((PASSED_TESTS + 1))
+                    else
+                        echo -e "${RED}예상된 실패 (오류 메시지 불일치)${NC}"
+                        FAILED_TESTS=$((FAILED_TESTS + 1))
+                    fi
+                else
+                    echo -e "${RED}실패: $output${NC}"
+                    FAILED_TESTS=$((FAILED_TESTS + 1))
+                fi
+            fi
+            ;;
+        "get-prefix")
+            echo -n "  GET-PREFIX $key ... "
+            if output=$("$CLIENT" --url "$url" get-prefix "$key" 2>&1); then
+                if [[ "$expect" == "success" ]]; then
+                    echo -e "${GREEN}성공${NC}"
+                    # Show summary of results
+                    echo "$output" | grep "개 키 발견\|조회됨" | sed 's/^/    /'
                     PASSED_TESTS=$((PASSED_TESTS + 1))
+                else
+                    echo -e "${RED}예상과 다름 (성공했으나 실패 예상)${NC}"
+                    FAILED_TESTS=$((FAILED_TESTS + 1))
+                fi
+            else
+                if [[ "$expect" == "failure" ]]; then
+                    if [[ -n "$expected_error" && "$output" == *"$expected_error"* ]]; then
+                        echo -e "${GREEN}예상된 실패 (오류 메시지 일치)${NC}"
+                        PASSED_TESTS=$((PASSED_TESTS + 1))
+                    else
+                        echo -e "${RED}예상된 실패 (오류 메시지 불일치)${NC}"
+                        FAILED_TESTS=$((FAILED_TESTS + 1))
+                    fi
                 else
                     echo -e "${RED}실패: $output${NC}"
                     FAILED_TESTS=$((FAILED_TESTS + 1))
@@ -153,53 +162,122 @@ run_test() {
     esac
 }
 
-# YAML 파싱 및 테스트 실행 (하드코딩된 테스트로 단순화)
-current_url="$DEFAULT_URL"
+# Simple YAML parser for our test format
+run_yaml_tests() {
+    local yaml_file="$1"
+    local server_url="http://127.0.0.1:47007"
+    
+    echo "RocksDB gRPC 클라이언트 YAML 기반 테스트 시작"
+    echo "테스트 시나리오: $yaml_file"
+    echo ""
+    
+    # Extract scenario name
+    local scenario_name=$(grep "name:" "$yaml_file" | head -1 | sed 's/.*name: *//; s/"//g')
+    echo -e "${YELLOW}테스트 시나리오: $scenario_name${NC}"
+    
+    # Extract server URL if present
+    local yaml_url=$(grep "url:" "$yaml_file" | head -1 | sed 's/.*url: *//; s/"//g')
+    if [[ -n "$yaml_url" ]]; then
+        server_url="$yaml_url"
+    fi
+    
+    # Parse tests using a simpler approach
+    local in_tests=false
+    local current_action=""
+    local current_key=""
+    local current_value=""
+    local current_expect=""
+    local current_expected_value=""
+    local current_expected_error=""
+    local collecting_value=false
+    
+    while IFS= read -r line; do
+        # Skip empty lines and comments
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        
+        # Check if we're in tests section
+        if [[ "$line" =~ tests: ]]; then
+            in_tests=true
+            continue
+        fi
+        
+        if [[ "$in_tests" == true ]]; then
+            # New test item
+            if [[ "$line" =~ -[[:space:]]*name: ]]; then
+                # Execute previous test if we have complete data
+                if [[ -n "$current_action" && -n "$current_key" ]]; then
+                    run_test "$current_action" "$current_key" "$current_value" "$current_expect" "$current_expected_value" "$current_expected_error" "$server_url"
+                fi
+                
+                # Reset for new test
+                current_action=""
+                current_key=""
+                current_value=""
+                current_expect=""
+                current_expected_value=""
+                current_expected_error=""
+                collecting_value=false
+                continue
+            fi
+            
+            # Stop collecting multi-line value when we hit a new property
+            if [[ "$collecting_value" == true && "$line" =~ ^[[:space:]]*[a-zA-Z]+: ]]; then
+                collecting_value=false
+            fi
+            
+            # Parse properties
+            if [[ "$line" =~ action:[[:space:]]*\"?([^\"]+)\"? ]]; then
+                current_action="${BASH_REMATCH[1]}"
+                current_action="${current_action//\"/}"
+            elif [[ "$line" =~ key:[[:space:]]*\"?([^\"]+)\"? ]]; then
+                current_key="${BASH_REMATCH[1]}"
+                current_key="${current_key//\"/}"
+            elif [[ "$line" =~ value:[[:space:]]*\"([^\"]+)\" ]]; then
+                current_value="${BASH_REMATCH[1]}"
+            elif [[ "$line" =~ value:[[:space:]]*\| ]]; then
+                collecting_value=true
+                current_value=""
+            elif [[ "$collecting_value" == true ]]; then
+                # Remove leading spaces but preserve relative indentation
+                clean_line="${line#        }"
+                if [[ -n "$current_value" ]]; then
+                    current_value="${current_value}\n${clean_line}"
+                else
+                    current_value="${clean_line}"
+                fi
+            elif [[ "$line" =~ expect:[[:space:]]*\"?([^\"]+)\"? ]]; then
+                current_expect="${BASH_REMATCH[1]}"
+                current_expect="${current_expect//\"/}"
+            elif [[ "$line" =~ expected_value:[[:space:]]*\"([^\"]+)\" ]]; then
+                current_expected_value="${BASH_REMATCH[1]}"
+            elif [[ "$line" =~ expected_error:[[:space:]]*\"([^\"]+)\" ]]; then
+                current_expected_error="${BASH_REMATCH[1]}"
+            fi
+        fi
+    done < "$yaml_file"
+    
+    # Execute the last test
+    if [[ -n "$current_action" && -n "$current_key" ]]; then
+        run_test "$current_action" "$current_key" "$current_value" "$current_expect" "$current_expected_value" "$current_expected_error" "$server_url"
+    fi
+}
 
-echo ""
-echo -e "${YELLOW}테스트 시나리오: rocksdb-basic-test${NC}"
-run_test "put" "example_key_$TIMESTAMP" "Hello RocksDB World! $DATETIME" "success" "" "" "$current_url"
-run_test "get" "example_key_$TIMESTAMP" "" "success" "Hello RocksDB World! $DATETIME" "" "$current_url"
-run_test "delete" "example_key_$TIMESTAMP" "" "success" "" "" "$current_url"
-run_test "get" "example_key_$TIMESTAMP" "" "failure" "" "Key not found" "$current_url"
+# Run the tests
+run_yaml_tests "$YAML_FILE"
 
-echo ""
-echo -e "${YELLOW}테스트 시나리오: rocksdb-multiple-operations${NC}"
-run_test "put" "user:1:name" "Alice" "success" "" "" "$current_url"
-run_test "put" "user:1:email" "alice@example.com" "success" "" "" "$current_url"
-run_test "get" "user:1:name" "" "success" "Alice" "" "$current_url"
-run_test "get" "user:1:email" "" "success" "alice@example.com" "" "$current_url"
-run_test "delete" "user:1:name" "" "success" "" "" "$current_url"
-run_test "delete" "user:1:email" "" "success" "" "" "$current_url"
-
-echo ""
-echo -e "${YELLOW}테스트 시나리오: rocksdb-error-handling${NC}"
-run_test "get" "nonexistent_key_$TIMESTAMP" "" "failure" "" "Key not found" "$current_url"
-run_test "delete" "nonexistent_key_$TIMESTAMP" "" "success" "" "" "$current_url"
-
-# 결과 요약
+# Print summary
 echo ""
 echo -e "${BLUE}테스트 결과 요약${NC}"
 echo "총 테스트: $TOTAL_TESTS"
-echo "성공: $PASSED_TESTS"
-echo "실패: $FAILED_TESTS"
+echo -e "${GREEN}성공: $PASSED_TESTS${NC}"
+echo -e "${RED}실패: $FAILED_TESTS${NC}"
 
-if [ $FAILED_TESTS -eq 0 ]; then
+if [[ $FAILED_TESTS -gt 0 ]]; then
     echo ""
-    echo -e "${GREEN}모든 테스트 통과!${NC}"
-    echo ""
-    echo "추가 사용법:"
-    echo "   # 직접 명령 실행"
-    echo "   $CLIENT --url $DEFAULT_URL put mykey \"my value\""
-    echo "   $CLIENT --url $DEFAULT_URL get mykey"
-    echo "   $CLIENT --url $DEFAULT_URL delete mykey"
-    echo ""
-    echo "   # 환경변수로 URL 설정"
-    echo "   export ROCKSDB_URL=http://192.168.1.100:47007"
-    echo "   $CLIENT put mykey \"my value\""
-    exit 0
+    echo -e "${RED}${FAILED_TESTS}개의 테스트가 실패했습니다.${NC}"
+    exit 1
 else
     echo ""
-    echo -e "${RED}$FAILED_TESTS개의 테스트가 실패했습니다.${NC}"
-    exit 1
+    echo -e "${GREEN}모든 테스트가 성공했습니다!${NC}"
+    exit 0
 fi
