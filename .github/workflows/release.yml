@@ -116,3 +116,23 @@ jobs:
         with:
           name: rocksctl-binary-arm64
           path: dist/binaries/arm
+
+      # Upload AMD64 binary to release
+      - name: Upload binary (Linux AMD64) to release
+        uses: svenstaro/upload-release-action@v2
+        id: upload_rocksctl_amd64
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: dist/binaries/amd/rocksctl-linux-amd64
+          asset_name: rocksctl-linux-amd64
+          tag: ${{ github.ref }}
+
+      # Upload ARM64 binary to release
+      - name: Upload binary (Linux ARM64) to release
+        uses: svenstaro/upload-release-action@v2
+        id: upload_rocksctl_arm64
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: dist/binaries/arm/rocksctl-linux-arm64
+          asset_name: rocksctl-linux-arm64
+          tag: ${{ github.ref }}
