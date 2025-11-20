@@ -1,0 +1,14 @@
+[package]
+name = "rocksdb-client"
+version = "0.1.0"
+authors = ["Your Name <your@email.com>"]
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.0", features = ["derive"] }
+tokio = { version = "1.0", features = ["full"] }
+tonic = "0.10"
+prost = "0.12"
+
+[build-dependencies]
+tonic-build = "0.10"
