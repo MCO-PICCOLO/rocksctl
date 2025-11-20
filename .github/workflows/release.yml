@@ -7,6 +7,45 @@ on:
       - v*
 
 jobs:
+  run_amd64:
+    runs-on: ubuntu-22.04
+    steps:
+      # Step 1: Checkout the code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Install essential dependencies including protobuf-compiler and dbus
+      - name: Install essential dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y curl build-essential musl-tools musl-dev pkg-config protobuf-compiler
+
+      # Step 3: Install Rust toolchain
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # Step 4: Add musl target for static linking
+      - name: Add musl target
+        run: rustup target add x86_64-unknown-linux-musl
+
+      # Step 5: Build binary for AMD64 release
+      - name: Build binary (AMD64 static)
+        run: |
+          echo "Building static binary for AMD64..."
+          cd rocksdb-test
+          cargo build --release --target x86_64-unknown-linux-musl
+          cd ..
+          mkdir -p dist/binaries/amd/
+          cp rocksdb-test/target/x86_64-unknown-linux-musl/release/rocksdb-client dist/binaries/amd/rocksctl-linux-amd64
+          ls -la dist/binaries/amd/
+          file dist/binaries/amd/rocksctl-linux-amd64
+      # Step 6: Upload AMD64 binary
+      - name: Upload binary (AMD64)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rocksctl-binary-amd64
+          path: dist/binaries/amd/rocksctl-linux-amd64
   run_arm64:
     runs-on: ubuntu-22.04-arm
     steps:
@@ -19,7 +58,6 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y curl build-essential musl-tools musl-dev pkg-config protobuf-compiler
-          rm -rf /var/lib/apt/lists/*
 
       # Step 3: Install Rust toolchain
       - name: Install Rust toolchain
@@ -47,4 +85,3 @@ jobs:
         with:
           name: rocksctl-binary-arm64
           path: dist/binaries/arm/rocksctl-linux-arm64
-
